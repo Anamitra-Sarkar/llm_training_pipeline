@@ -290,6 +290,7 @@ def training_step(
     batch: dict[str, torch.Tensor],
     device: torch.device,
     use_bf16: bool,
+    gradient_accumulation_steps: int,
 ) -> float:
     """
     Perform a single training step.
@@ -299,9 +300,10 @@ def training_step(
         batch: Input batch
         device: Training device
         use_bf16: Whether to use bf16
+        gradient_accumulation_steps: Number of gradient accumulation steps
 
     Returns:
-        Loss value
+        Unscaled loss value (for logging purposes)
     """
     batch = {k: v.to(device) for k, v in batch.items()}
 
@@ -314,9 +316,17 @@ def training_step(
         outputs = model(**batch)
         loss = outputs.loss
 
-    loss.backward()
+    # Store unscaled loss for logging before scaling
+    unscaled_loss = loss.item()
 
-    return loss.item()
+    # REQUIREMENT 1: Scale loss by gradient_accumulation_steps before backward.
+    # This is mathematically required for correct gradient accumulation under DDP
+    # and ensures gradient magnitudes remain consistent regardless of accumulation count.
+    # Applies to single GPU, multi-GPU (DDP), bf16, and fp32 modes.
+    scaled_loss = loss / gradient_accumulation_steps
+    scaled_loss.backward()
+
+    return unscaled_loss
 
 
 def train(config: dict[str, Any]) -> None:
@@ -425,7 +435,9 @@ def train(config: dict[str, Any]) -> None:
             data_iter = iter(train_dataloader)
             batch = next(data_iter)
 
-        loss = training_step(model, batch, device, use_bf16)
+        loss = training_step(
+            model, batch, device, use_bf16, config["gradient_accumulation_steps"]
+        )
         accumulation_loss += loss
 
         if (global_step + 1) % config["gradient_accumulation_steps"] == 0:
