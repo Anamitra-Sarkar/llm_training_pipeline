@@ -5,6 +5,7 @@ Provides functions for loading pre-trained models, applying gradient
 checkpointing, and preparing models for distributed training.
 """
 
+import inspect
 import logging
 from typing import Any
 
@@ -118,9 +119,16 @@ def prepare_model_for_training(
     if bf16 and device.type == "cuda" and torch.cuda.is_bf16_supported():
         model = model.to(device=device, dtype=torch.bfloat16)
         logger.info("Model converted to bfloat16")
+    elif bf16 and device.type == "mps":
+        # MPS has limited bf16 support, use float32 for stability
+        logger.warning("bf16 not fully supported on MPS, using float32")
+        model = model.to(device=device, dtype=torch.float32)
+        logger.info(f"Model moved to {device} with float32")
     elif bf16 and device.type == "cpu":
-        model = model.to(device=device, dtype=torch.bfloat16)
-        logger.info("Model converted to bfloat16 on CPU")
+        # CPU bf16 may not provide performance benefits, use float32
+        logger.warning("bf16 on CPU may not provide benefits, using float32")
+        model = model.to(device=device, dtype=torch.float32)
+        logger.info(f"Model moved to {device} with float32")
     else:
         model = model.to(device=device)
         logger.info(f"Model moved to {device}")
@@ -165,8 +173,6 @@ def get_model_input_names(model: AutoModelForCausalLM) -> list[str]:
         List of input tensor names
     """
     if hasattr(model, "forward"):
-        import inspect
-
         sig = inspect.signature(model.forward)
         return [p.name for p in sig.parameters.values() if p.name != "self"]
     return ["input_ids", "attention_mask", "labels"]

@@ -18,7 +18,6 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
-from torch.cuda.amp import GradScaler
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LRScheduler
 from tqdm import tqdm
@@ -292,7 +291,6 @@ def training_step(
     model: torch.nn.Module,
     batch: dict[str, torch.Tensor],
     device: torch.device,
-    scaler: GradScaler | None,
     use_bf16: bool,
 ) -> float:
     """
@@ -302,7 +300,6 @@ def training_step(
         model: Model to train
         batch: Input batch
         device: Training device
-        scaler: Gradient scaler for mixed precision
         use_bf16: Whether to use bf16
 
     Returns:
@@ -310,8 +307,9 @@ def training_step(
     """
     batch = {k: v.to(device) for k, v in batch.items()}
 
-    if use_bf16:
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+    # Handle autocast - only CUDA supports bf16 autocast properly
+    if use_bf16 and device.type == "cuda":
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             outputs = model(**batch)
             loss = outputs.loss
     else:
@@ -395,8 +393,6 @@ def train(config: dict[str, Any]) -> None:
         warmup_steps=config["warmup_steps"],
     )
 
-    scaler = None
-
     start_step = 0
     if config["resume_from_checkpoint"]:
         logger.info(f"Resuming from checkpoint: {config['resume_from_checkpoint']}")
@@ -431,7 +427,7 @@ def train(config: dict[str, Any]) -> None:
             data_iter = iter(train_dataloader)
             batch = next(data_iter)
 
-        loss = training_step(model, batch, device, scaler, use_bf16)
+        loss = training_step(model, batch, device, use_bf16)
         accumulation_loss += loss
 
         if (global_step + 1) % config["gradient_accumulation_steps"] == 0:

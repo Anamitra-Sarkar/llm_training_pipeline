@@ -226,6 +226,11 @@ def load_checkpoint(
 
     Raises:
         FileNotFoundError: If checkpoint doesn't exist
+
+    Note:
+        This function uses weights_only=False for torch.load to support
+        loading optimizer and scheduler states. Only load checkpoints
+        from trusted sources to avoid potential security risks.
     """
     path = Path(checkpoint_path)
     if path.is_dir():
