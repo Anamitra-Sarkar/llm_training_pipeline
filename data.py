@@ -44,7 +44,6 @@ def load_training_data(
         dataset_config,
         split=split,
         streaming=streaming,
-        trust_remote_code=True,
     )
 
     logger.info(f"Dataset loaded: {len(dataset) if not streaming else 'streaming'} examples")

@@ -56,19 +56,23 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to YAML/JSON configuration file",
     )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help="Initialize model, optimizer, scheduler and exit without training (verification mode)",
+    )
 
     # Model arguments
     parser.add_argument(
         "--model_name_or_path",
         type=str,
         default=None,
-        help="HuggingFace model name or path",
+        help="HuggingFace model name or path (default: gpt2)",
     )
     parser.add_argument(
-        "--use_gradient_checkpointing",
+        "--no_gradient_checkpointing",
         action="store_true",
-        default=None,
-        help="Enable gradient checkpointing",
+        help="Disable gradient checkpointing (enabled by default for memory efficiency)",
     )
 
     # Data arguments
@@ -76,25 +80,25 @@ def parse_args() -> argparse.Namespace:
         "--dataset_name",
         type=str,
         default=None,
-        help="HuggingFace dataset name",
+        help="HuggingFace dataset name (default: wikitext)",
     )
     parser.add_argument(
         "--dataset_config",
         type=str,
         default=None,
-        help="Dataset configuration name",
+        help="Dataset configuration name (default: wikitext-2-raw-v1)",
     )
     parser.add_argument(
         "--max_seq_length",
         type=int,
         default=None,
-        help="Maximum sequence length",
+        help="Maximum sequence length (default: 512)",
     )
     parser.add_argument(
         "--preprocessing_num_workers",
         type=int,
         default=None,
-        help="Number of preprocessing workers",
+        help="Number of preprocessing workers (default: 4)",
     )
 
     # Training arguments
@@ -102,93 +106,87 @@ def parse_args() -> argparse.Namespace:
         "--output_dir",
         type=str,
         default=None,
-        help="Output directory for checkpoints and logs",
+        help="Output directory for checkpoints and logs (default: ./output)",
     )
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
         default=None,
-        help="Training batch size per device",
+        help="Training batch size per device (default: 4)",
     )
     parser.add_argument(
         "--per_device_eval_batch_size",
         type=int,
         default=None,
-        help="Evaluation batch size per device",
+        help="Evaluation batch size per device (default: 4)",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
         default=None,
-        help="Number of gradient accumulation steps",
+        help="Number of gradient accumulation steps (default: 4)",
     )
     parser.add_argument(
         "--learning_rate",
         type=float,
         default=None,
-        help="Learning rate",
+        help="Learning rate (default: 5e-5)",
     )
     parser.add_argument(
         "--weight_decay",
         type=float,
         default=None,
-        help="Weight decay",
+        help="Weight decay (default: 0.01)",
     )
     parser.add_argument(
         "--max_train_steps",
         type=int,
         default=None,
-        help="Maximum training steps",
+        help="Maximum training steps (default: 1000)",
     )
     parser.add_argument(
         "--warmup_steps",
         type=int,
         default=None,
-        help="Number of warmup steps",
+        help="Number of warmup steps (default: 100)",
     )
     parser.add_argument(
         "--lr_scheduler_type",
         type=str,
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
         default=None,
-        help="Learning rate scheduler type",
+        help="Learning rate scheduler type (default: cosine)",
     )
     parser.add_argument(
         "--save_steps",
         type=int,
         default=None,
-        help="Save checkpoint every N steps",
+        help="Save checkpoint every N steps (default: 500)",
     )
     parser.add_argument(
         "--eval_steps",
         type=int,
         default=None,
-        help="Evaluate every N steps",
+        help="Evaluate every N steps (default: 100)",
     )
     parser.add_argument(
         "--logging_steps",
         type=int,
         default=None,
-        help="Log every N steps",
+        help="Log every N steps (default: 10)",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=None,
-        help="Random seed",
+        help="Random seed (default: 42)",
     )
 
     # Mixed precision
     parser.add_argument(
-        "--bf16",
-        action="store_true",
-        default=None,
-        help="Use bfloat16 mixed precision",
-    )
-    parser.add_argument(
         "--no_bf16",
         action="store_true",
-        help="Disable bfloat16 mixed precision",
+        help="Disable bfloat16 mixed precision (enabled by default for modern GPUs)",
     )
 
     # Checkpoint
@@ -495,6 +493,107 @@ def train(config: dict[str, Any]) -> None:
     logger.info("Training complete!")
 
 
+def dry_run(config: dict[str, Any]) -> None:
+    """
+    Perform a dry run to verify initialization without training.
+
+    Args:
+        config: Training configuration dictionary
+    """
+    setup_logging(log_level="INFO")
+
+    logger.info("=" * 60)
+    logger.info("DRY RUN MODE - Verifying initialization")
+    logger.info("=" * 60)
+
+    for key, value in config.items():
+        logger.info(f"  {key}: {value}")
+    logger.info("=" * 60)
+
+    set_seed(config["seed"])
+
+    device = get_device()
+    logger.info(f"Using device: {device}")
+
+    use_bf16 = config["bf16"]
+    if use_bf16 and device.type == "cuda" and not torch.cuda.is_bf16_supported():
+        logger.warning("bf16 not supported on this GPU, would fall back to fp32")
+        use_bf16 = False
+    elif use_bf16 and device.type != "cuda":
+        logger.warning(f"bf16 autocast not fully supported on {device.type}, would fall back to fp32")
+        use_bf16 = False
+
+    logger.info(f"bf16 enabled: {use_bf16}")
+    logger.info(f"Gradient checkpointing enabled: {config['use_gradient_checkpointing']}")
+    logger.info(f"LR scheduler: {config['lr_scheduler_type']}")
+    logger.info(f"Optimizer: AdamW (weight_decay={config['weight_decay']})")
+
+    logger.info("Loading model and tokenizer...")
+    model, tokenizer = load_model_and_tokenizer(
+        model_name_or_path=config["model_name_or_path"],
+        use_gradient_checkpointing=config["use_gradient_checkpointing"],
+    )
+    logger.info("✓ Model and tokenizer loaded successfully")
+
+    logger.info("Preparing model for training...")
+    model = prepare_model_for_training(model, device, bf16=use_bf16)
+    logger.info("✓ Model prepared for training")
+
+    logger.info("Loading datasets...")
+    train_dataloader, eval_dataloader = prepare_datasets(
+        dataset_name=config["dataset_name"],
+        dataset_config=config["dataset_config"],
+        tokenizer=tokenizer,
+        max_seq_length=config["max_seq_length"],
+        train_batch_size=config["per_device_train_batch_size"],
+        eval_batch_size=config["per_device_eval_batch_size"],
+        num_workers=config["preprocessing_num_workers"],
+    )
+    logger.info("✓ Datasets loaded successfully")
+    logger.info(f"  Train batches: {len(train_dataloader)}")
+    logger.info(f"  Eval batches: {len(eval_dataloader) if eval_dataloader else 'N/A'}")
+
+    logger.info("Creating optimizer...")
+    optimizer = create_optimizer(
+        model=model,
+        learning_rate=config["learning_rate"],
+        weight_decay=config["weight_decay"],
+    )
+    logger.info("✓ AdamW optimizer created successfully")
+
+    logger.info("Creating learning rate scheduler...")
+    scheduler = create_scheduler(
+        optimizer=optimizer,
+        scheduler_type=config["lr_scheduler_type"],
+        num_training_steps=config["max_train_steps"],
+        warmup_steps=config["warmup_steps"],
+    )
+    logger.info(f"✓ {config['lr_scheduler_type']} scheduler created successfully")
+
+    logger.info("Testing forward pass...")
+    model.eval()
+    batch = next(iter(train_dataloader))
+    batch = {k: v.to(device) for k, v in batch.items()}
+    with torch.no_grad():
+        if use_bf16 and device.type == "cuda":
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                outputs = model(**batch)
+        else:
+            outputs = model(**batch)
+    logger.info(f"✓ Forward pass successful, loss: {outputs.loss.item():.4f}")
+
+    logger.info("=" * 60)
+    logger.info("DRY RUN COMPLETE - All components initialized successfully!")
+    logger.info("=" * 60)
+    logger.info("Production defaults active:")
+    logger.info(f"  - bf16 mixed precision: {'ENABLED' if config['bf16'] else 'DISABLED'}")
+    logger.info(f"  - Gradient checkpointing: {'ENABLED' if config['use_gradient_checkpointing'] else 'DISABLED'}")
+    logger.info(f"  - LR scheduler: {config['lr_scheduler_type']}")
+    logger.info(f"  - Evaluation: ENABLED (every {config['eval_steps']} steps)")
+    logger.info(f"  - Checkpoint saving: ENABLED (every {config['save_steps']} steps)")
+    logger.info("=" * 60)
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -505,15 +604,21 @@ def main() -> None:
     if args.config:
         file_config = load_config(args.config)
 
+    # Handle opt-out flags
     if args.no_bf16:
         args.bf16 = False
+    if args.no_gradient_checkpointing:
+        args.use_gradient_checkpointing = False
 
     config = merge_configs(default_config, file_config, args)
 
     Path(config["output_dir"]).mkdir(parents=True, exist_ok=True)
 
     try:
-        train(config)
+        if args.dry_run:
+            dry_run(config)
+        else:
+            train(config)
     except KeyboardInterrupt:
         logger.info("Training interrupted by user")
         sys.exit(0)

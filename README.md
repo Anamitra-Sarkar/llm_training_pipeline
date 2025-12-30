@@ -5,16 +5,29 @@ A production-ready training script for LLM pretraining and fine-tuning using PyT
 ## Features
 
 - **PyTorch + Hugging Face Transformers** integration
-- **bf16 mixed precision** training support
+- **bf16 mixed precision** (enabled by default for modern GPUs)
 - **AdamW optimizer** with weight decay
-- **Learning rate schedulers** (cosine, linear, constant, etc.)
+- **Learning rate schedulers** (cosine by default, linear, constant, etc.)
 - **Gradient accumulation** for effective larger batch sizes
-- **Gradient checkpointing** for memory efficiency
+- **Gradient checkpointing** (enabled by default for memory efficiency)
 - **Distributed training** ready (DDP-safe)
 - **Checkpoint resumption** support
-- **Periodic checkpoint saving**
-- **Evaluation with perplexity** computation
+- **Periodic checkpoint saving** (enabled by default)
+- **Evaluation with perplexity** (enabled by default)
 - **Flexible configuration** via CLI arguments or YAML/JSON files
+- **Dry run mode** for verification without training
+
+## Production Defaults
+
+This script is designed for modern GPU environments (A100/H100/TPUv5e) with sensible production defaults:
+
+| Feature | Default | Opt-out Flag |
+|---------|---------|--------------|
+| bf16 mixed precision | **ENABLED** | `--no_bf16` |
+| Gradient checkpointing | **ENABLED** | `--no_gradient_checkpointing` |
+| Cosine LR scheduler | **ACTIVE** | Change with `--lr_scheduler_type` |
+| Evaluation loop | **ENABLED** | - |
+| Checkpoint saving | **ENABLED** | - |
 
 ## File Structure
 
@@ -45,6 +58,20 @@ pip install -r requirements.txt
 ```
 
 ## Quick Start
+
+### Verify Installation (Dry Run)
+
+```bash
+# Verify all components initialize correctly without training
+python train.py --dry_run
+```
+
+This will:
+- Load the model and tokenizer
+- Prepare datasets
+- Create optimizer and scheduler
+- Run a forward pass
+- Report status of all production features
 
 ### Basic Training
 
