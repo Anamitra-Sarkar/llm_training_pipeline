@@ -604,13 +604,13 @@ def main() -> None:
     if args.config:
         file_config = load_config(args.config)
 
-    # Handle opt-out flags
-    if args.no_bf16:
-        args.bf16 = False
-    if args.no_gradient_checkpointing:
-        args.use_gradient_checkpointing = False
-
     config = merge_configs(default_config, file_config, args)
+
+    # Handle opt-out flags - these override the default enabled state
+    if args.no_bf16:
+        config["bf16"] = False
+    if args.no_gradient_checkpointing:
+        config["use_gradient_checkpointing"] = False
 
     Path(config["output_dir"]).mkdir(parents=True, exist_ok=True)
 
